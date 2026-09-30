@@ -124,7 +124,19 @@
     periodicReserveForeign: document.querySelector("#periodicReserveForeign"),
     periodicList: document.querySelector("#periodicList"),
     largestExpenses: document.querySelector("#largestExpenses"),
-    insightText: document.querySelector("#insightText"),
+    insightList: document.querySelector("#insightList"),
+    forecastCard: document.querySelector("#forecastCard"),
+    forecastHint: document.querySelector("#forecastHint"),
+    forecastDays: document.querySelector("#forecastDays"),
+    forecastTotal: document.querySelector("#forecastTotal"),
+    forecastText: document.querySelector("#forecastText"),
+    forecastSpent: document.querySelector("#forecastSpent"),
+    forecastBudgetMark: document.querySelector("#forecastBudgetMark"),
+    forecastSoFar: document.querySelector("#forecastSoFar"),
+    forecastDailyLabel: document.querySelector("#forecastDailyLabel"),
+    forecastDaily: document.querySelector("#forecastDaily"),
+    changesHint: document.querySelector("#changesHint"),
+    changesList: document.querySelector("#changesList"),
     editDialog: document.querySelector("#editDialog"),
     editId: document.querySelector("#editId"),
     editTitle: document.querySelector("#editTitle"),
@@ -855,21 +867,210 @@
     const periodic = renderPeriodic(allExpenses);
     renderLargestExpenses(expenses);
 
+    const forecast = renderForecast(bounds, expenses, total);
+    const movers = renderChanges(expenses, previousExpenses, previousTotal > 0);
+
+    const insights = [];
     if (!expenses.length) {
-      els.insightText.textContent = "Erfasse Ausgaben in diesem Zeitraum, um persönliche Hinweise zu erhalten.";
-    } else if (overBudget.length) {
-      const worst = overBudget.sort((a, b) => b.ratio - a.ratio)[0];
-      els.insightText.textContent = `${categories[worst.key].label} liegt ${money(worst.spent - worst.budget)} über dem anteiligen Budget.`;
-    } else if (analysisScope === "regular" && periodic.count) {
-      els.insightText.textContent = `${periodic.count} periodische ${periodic.count === 1 ? "Rechnung wurde" : "Rechnungen wurden"} mit ${money(periodic.paidTotal)} separat ausgeklammert. Empfohlene monatliche Rücklage: ${money(periodic.monthlyReserve)}.`;
-    } else if (change !== null && change > 15) {
-      els.insightText.textContent = `Deine Ausgaben sind ${Math.round(change)} % höher als ${previousPhrases.during}. Prüfe besonders ${categories[categoryTotals[0][0]].label}.`;
-    } else if (change !== null && change < -15) {
-      els.insightText.textContent = `Du hast ${Math.abs(Math.round(change))} % weniger ausgegeben als ${previousPhrases.during}.`;
+      insights.push("Erfasse Ausgaben in diesem Zeitraum, um persönliche Hinweise zu erhalten.");
     } else {
-      const [topKey, topAmount] = categoryTotals[0];
-      els.insightText.textContent = `${categories[topKey].label} ist mit ${money(topAmount)} deine grösste Kategorie in diesem Zeitraum.`;
+      if (overBudget.length) {
+        const worst = [...overBudget].sort((a, b) => b.ratio - a.ratio)[0];
+        insights.push(`${categories[worst.key].label} liegt ${money(worst.spent - worst.budget)} über dem anteiligen Budget.`);
+      }
+      if (forecast?.budget && forecast.projected > forecast.budget && !overBudget.length) {
+        insights.push(`Bei deinem aktuellen Tempo landest du bei rund ${money(forecast.projected)} – ${money(forecast.projected - forecast.budget)} über deinem Budget. Mit höchstens ${money(Math.max(0, forecast.budgetPerDay))} pro Tag bleibst du im Rahmen.`);
+      }
+      if (change !== null && change > 15) {
+        const driver = movers.find(row => row.delta > 0);
+        insights.push(`Deine Ausgaben sind ${Math.round(change)} % höher als ${previousPhrases.during}${driver ? ` – vor allem wegen ${categories[driver.key].label} (+${money(driver.delta)})` : ""}.`);
+      } else if (change !== null && change < -15) {
+        const saver = movers.find(row => row.delta < 0);
+        insights.push(`Du hast ${Math.abs(Math.round(change))} % weniger ausgegeben als ${previousPhrases.during}${saver ? `, am meisten gespart bei ${categories[saver.key].label} (−${money(Math.abs(saver.delta))})` : ""}.`);
+      }
+      const unusual = findUnusualExpense(expenses);
+      if (unusual) {
+        insights.push(`Ungewöhnlich hoch: «${unusual.expense.description}» mit ${money(unusual.expense.amount)} – etwa ${unusual.factor.toFixed(1).replace(".0", "")}× so viel wie sonst bei ${categories[unusual.expense.category].label}.`);
+      }
+      const recurring = detectRecurring();
+      if (recurring.length) {
+        const monthlySum = recurring.reduce((sum, item) => sum + item.amount, 0);
+        const names = recurring.slice(0, 3).map(item => item.description).join(", ");
+        const subs = recurring.filter(item => item.category === "abos" || item.category === "kommunikation");
+        const subsSum = subs.reduce((sum, item) => sum + item.amount, 0);
+        insights.push(`${recurring.length} wiederkehrende ${recurring.length === 1 ? "Zahlung" : "Zahlungen"} erkannt (${names}${recurring.length > 3 ? " …" : ""}), zusammen ca. ${money(monthlySum)} Fixkosten pro Monat.${subs.length ? ` Davon Abos & Verträge: ${money(subsSum)} – das sind ${money(subsSum * 12)} im Jahr.` : ""}`);
+      }
+      if (analysisScope === "regular" && periodic.count) {
+        insights.push(`${periodic.count} periodische ${periodic.count === 1 ? "Rechnung wurde" : "Rechnungen wurden"} mit ${money(periodic.paidTotal)} ausgeklammert. Empfohlene monatliche Rücklage: ${money(periodic.monthlyReserve)}.`);
+      }
+      const weekend = weekendShare(expenses);
+      if (weekend && analysisMode !== "week") {
+        insights.push(`${Math.round(weekend * 100)} % deiner Ausgaben fallen aufs Wochenende – deutlich mehr als an Werktagen.`);
+      }
+      if (insights.length < 2) {
+        const [topKey, topAmount] = categoryTotals[0];
+        insights.push(`${categories[topKey].label} ist mit ${money(topAmount)} (${Math.round(topAmount / total * 100)} %) deine grösste Kategorie in diesem Zeitraum.`);
+      }
     }
+    els.insightList.innerHTML = insights.slice(0, 4).map(text => `<li>${escapeHtml(text)}</li>`).join("");
+  }
+
+  function renderForecast(bounds, expenses, total) {
+    const today = dateFromISO(todayISO());
+    const isCurrent = today >= bounds.start && today <= bounds.end;
+    els.forecastCard.hidden = !isCurrent;
+    if (!isCurrent) return null;
+
+    const totalDays = daysInclusive(bounds.start, bounds.end);
+    const elapsed = daysInclusive(bounds.start, today);
+    const remaining = totalDays - elapsed;
+    const oneOffs = analysisScope === "cashflow"
+      ? expenses.filter(expense => expense.cadence === "annual" || expense.cadence === "semiannual").reduce((sum, expense) => sum + expense.amount, 0)
+      : 0;
+    const runningSpent = total - oneOffs;
+
+    // Historischer Tagesdurchschnitt aus den letzten drei Perioden (nur laufende Ausgaben)
+    const history = [];
+    for (let step = 1; step <= 3; step += 1) {
+      const start = shiftPeriod(bounds.start, analysisMode, -step);
+      const pastBounds = { start, end: endOfPeriod(analysisMode, start) };
+      const rows = expensesInPeriod(pastBounds).filter(expense => !expense.cadence || expense.cadence === "standard");
+      if (rows.length) history.push(rows.reduce((sum, expense) => sum + expense.amount, 0) / daysInclusive(pastBounds.start, pastBounds.end));
+    }
+    const currentRate = runningSpent / elapsed;
+    const historicRate = history.length ? history.reduce((a, b) => a + b, 0) / history.length : null;
+    const weight = Math.min(1, elapsed / totalDays + 0.15);
+    const rate = historicRate === null ? currentRate : weight * currentRate + (1 - weight) * historicRate;
+    const projected = total + rate * remaining;
+
+    const configured = Object.entries(state.budgets).filter(([key, value]) => categories[key] && Number(value) > 0);
+    const budget = configured.length ? configured.reduce((sum, [, value]) => sum + Number(value), 0) * budgetScale(analysisMode) : 0;
+    const periodWord = analysisMode === "week" ? "Woche" : analysisMode === "year" ? "Jahr" : "Monat";
+    const endWord = analysisMode === "week" ? "bis Sonntag" : analysisMode === "year" ? "bis Ende Jahr" : "bis Ende Monat";
+
+    els.forecastHint.textContent = `${endWord} · ${history.length ? "aktuelles Tempo + Vergleichsperioden" : "aktuelles Tempo"}`;
+    els.forecastDays.textContent = remaining === 0 ? "letzter Tag" : `${remaining} ${remaining === 1 ? "Tag" : "Tage"} übrig`;
+    els.forecastTotal.textContent = `≈ ${money(projected)}`;
+    els.forecastSoFar.textContent = money(total);
+
+    const scale = Math.max(projected, budget, 1);
+    els.forecastSpent.style.width = `${Math.min(100, total / scale * 100).toFixed(1)}%`;
+    els.forecastSpent.parentElement.style.setProperty("--projected", `${Math.min(100, projected / scale * 100).toFixed(1)}%`);
+    els.forecastBudgetMark.hidden = !budget;
+
+    let budgetPerDay = null;
+    els.forecastText.className = "forecast-text";
+    if (budget) {
+      els.forecastBudgetMark.style.left = `${Math.min(100, budget / scale * 100).toFixed(1)}%`;
+      const left = budget - total;
+      budgetPerDay = remaining > 0 ? left / remaining : left;
+      if (projected > budget) {
+        els.forecastText.textContent = `Voraussichtlich ${money(projected - budget)} über deinem Budget von ${money(budget)}.`;
+        els.forecastText.classList.add("negative");
+      } else {
+        els.forecastText.textContent = `Voraussichtlich ${money(budget - projected)} unter deinem Budget von ${money(budget)}.`;
+        els.forecastText.classList.add("positive");
+      }
+      els.forecastDailyLabel.textContent = left >= 0 ? "Noch verfügbar pro Tag" : "Budget überschritten";
+      els.forecastDaily.textContent = money(Math.max(0, budgetPerDay));
+    } else {
+      els.forecastText.textContent = historicRate !== null
+        ? `Das wären ${money(Math.abs(projected - historicRate * totalDays))} ${projected >= historicRate * totalDays ? "mehr" : "weniger"} als dein üblicher ${periodWord}.`
+        : `Schätzung auf Basis deiner bisherigen Ausgaben in diesem ${periodWord === "Woche" ? "Zeitraum" : periodWord}.`;
+      els.forecastDailyLabel.textContent = "Tempo pro Tag";
+      els.forecastDaily.textContent = money(rate);
+    }
+    return { projected, budget, budgetPerDay };
+  }
+
+  function renderChanges(expenses, previousExpenses, hasPrevious) {
+    els.changesHint.textContent = previousPeriodPhrases(analysisMode).compared;
+    if (!hasPrevious || !expenses.length) {
+      els.changesList.innerHTML = emptyState("Noch kein Vergleich", `Sobald Ausgaben ${previousPeriodPhrases(analysisMode).during} vorliegen, siehst du hier, was sich verändert hat.`, "⇅");
+      return [];
+    }
+    const now = totalsByCategory(expenses);
+    const before = totalsByCategory(previousExpenses);
+    const rows = [...new Set([...Object.keys(now), ...Object.keys(before)])]
+      .filter(key => categories[key])
+      .map(key => ({ key, now: now[key] || 0, before: before[key] || 0, delta: (now[key] || 0) - (before[key] || 0) }))
+      .filter(row => Math.abs(row.delta) >= 1)
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+    if (!rows.length) {
+      els.changesList.innerHTML = emptyState("Kaum Veränderung", "Deine Kategorien liegen auf dem Niveau der Vorperiode.", "＝");
+      return [];
+    }
+    const maxDelta = Math.max(...rows.map(row => Math.abs(row.delta)));
+    els.changesList.innerHTML = rows.slice(0, 6).map(row => {
+      const up = row.delta > 0;
+      const width = (Math.abs(row.delta) / maxDelta * 50).toFixed(1);
+      const percent = row.before > 0 ? ` · ${up ? "+" : "−"}${Math.round(Math.abs(row.delta) / row.before * 100)} %` : " · neu";
+      return `<div class="change-row"><div class="change-head"><span>${categories[row.key].icon} ${categories[row.key].label}</span><strong class="${up ? "negative" : "positive"}">${up ? "+" : "−"}${money(Math.abs(row.delta))}</strong></div><div class="change-bar"><span class="${up ? "up" : "down"}" style="width:${width}%"></span></div><small>${shortMoney(row.before)} → ${shortMoney(row.now)} CHF${percent}</small></div>`;
+    }).join("");
+    return rows;
+  }
+
+  function median(values) {
+    if (!values.length) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  function findUnusualExpense(expenses) {
+    let best = null;
+    expenses
+      .filter(expense => !expense.cadence || expense.cadence === "standard")
+      .forEach(expense => {
+        const others = state.expenses.filter(other => other.category === expense.category && other.id !== expense.id && (!other.cadence || other.cadence === "standard"));
+        if (others.length < 4) return;
+        const typical = median(others.map(other => other.amount));
+        if (typical <= 0) return;
+        const factor = expense.amount / typical;
+        if (factor >= 3 && expense.amount - typical >= 30 && (!best || factor > best.factor)) best = { expense, factor };
+      });
+    return best;
+  }
+
+  function normalizeDescription(value) {
+    return String(value).toLocaleLowerCase("de-CH").replace(/\d+/g, "").replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function detectRecurring() {
+    const today = dateFromISO(todayISO());
+    const cutoff = new Date(today.getFullYear(), today.getMonth() - 4, 1, 12);
+    const groups = new Map();
+    state.expenses
+      .filter(expense => (!expense.cadence || expense.cadence === "standard") && dateFromISO(expense.date) >= cutoff)
+      .forEach(expense => {
+        const key = normalizeDescription(expense.description);
+        if (key.length < 3) return;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(expense);
+      });
+    const result = [];
+    groups.forEach(rows => {
+      const months = new Set(rows.map(row => monthKey(row.date)));
+      if (months.size < 3 || rows.length > months.size * 1.5) return;
+      const amounts = rows.map(row => row.amount);
+      const typical = median(amounts);
+      const stable = amounts.every(amount => Math.abs(amount - typical) <= Math.max(2, typical * 0.15));
+      if (!stable) return;
+      const latest = [...rows].sort(sortNewest)[0];
+      result.push({ description: latest.description, amount: typical, category: latest.category });
+    });
+    return result.sort((a, b) => b.amount - a.amount);
+  }
+
+  function weekendShare(expenses) {
+    const regular = expenses.filter(expense => !expense.cadence || expense.cadence === "standard");
+    if (regular.length < 8) return null;
+    const total = regular.reduce((sum, expense) => sum + expense.amount, 0);
+    if (!total) return null;
+    const weekend = regular.filter(expense => [0, 6].includes(dateFromISO(expense.date).getDay())).reduce((sum, expense) => sum + expense.amount, 0);
+    const share = weekend / total;
+    // Wochenende = 2/7 der Tage ≈ 29 %. Nur melden, wenn klar darüber.
+    return share >= 0.5 ? share : null;
   }
 
   function renderBudgetInputs() {

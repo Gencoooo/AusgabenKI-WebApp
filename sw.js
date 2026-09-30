@@ -1,4 +1,4 @@
-const CACHE = "ausgaben-ki-shell-v6";
+const CACHE = "ausgaben-ki-shell-v7";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest", "./favicon.svg", "./icon.svg"];
 
 self.addEventListener("install", event => {
