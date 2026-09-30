@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#07111f" />
+    <meta name="description" content="Ausgaben erfassen und automatisch mit einer lernenden, lokalen KI kategorisieren." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Ausgaben KI" />
+    <title>Ausgaben KI</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Privat · auf diesem Gerät</p>
+          <h1>Ausgaben <span>KI</span></h1>
+        </div>
+        <button class="icon-button" id="themeButton" type="button" aria-label="Darstellung wechseln">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.64 5.64l1.42 1.42m9.88 9.88 1.42 1.42m0-12.72-1.42 1.42M7.06 16.94l-1.42 1.42M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"/></svg>
+        </button>
+      </header>
+
+      <main>
+        <section class="view active" id="captureView" aria-labelledby="captureTab">
+          <article class="month-card">
+            <div class="month-card-head">
+              <div>
+                <span class="muted">Diesen Monat</span>
+                <strong id="monthTotal">CHF 0.00</strong>
+              </div>
+              <span class="month-badge" id="currentMonthLabel"></span>
+            </div>
+            <div class="mini-stats">
+              <div><span>Ausgaben</span><b id="monthCount">0</b></div>
+              <div><span>Grösste Kategorie</span><b id="topCategory">—</b></div>
+            </div>
+          </article>
+
+          <section class="capture-card">
+            <div class="section-title-row">
+              <div>
+                <p class="eyebrow">Neue Ausgabe</p>
+                <h2>Was hast du bezahlt?</h2>
+              </div>
+              <div class="ai-mark" aria-hidden="true"><span></span></div>
+            </div>
+
+            <form id="expenseForm" autocomplete="off">
+              <label for="description">Beschreibung</label>
+              <div class="input-wrap description-wrap">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15A7.5 7.5 0 1 1 4 11.5a7.5 7.5 0 0 1 15 0Z"/></svg>
+                <input id="description" name="description" type="text" maxlength="80" placeholder="z. B. Coop Einkauf" required />
+              </div>
+              <div class="prediction" id="prediction" aria-live="polite">
+                <span class="spark">✦</span>
+                <span id="predictionText">KI-Kategorie erscheint hier</span>
+              </div>
+
+              <div class="form-grid">
+                <div>
+                  <label for="amount">Betrag</label>
+                  <div class="input-wrap amount-wrap currency-amount-wrap">
+                    <select id="currency" name="currency" aria-label="Währung">
+                      <option value="CHF">CHF</option>
+                      <option value="EUR">EUR</option>
+                    </select>
+                    <input id="amount" name="amount" type="text" inputmode="decimal" placeholder="0.00" required />
+                  </div>
+                </div>
+                <div>
+                  <label for="expenseDate">Datum</label>
+                  <div class="input-wrap">
+                    <input id="expenseDate" name="date" type="date" required />
+                  </div>
+                </div>
+              </div>
+
+              <div class="rate-field" id="exchangeRateField" hidden>
+                <div>
+                  <label for="exchangeRate">Euro-Umrechnung</label>
+                  <span>1 EUR entspricht</span>
+                </div>
+                <div class="input-wrap rate-input-wrap">
+                  <input id="exchangeRate" name="exchangeRate" type="text" inputmode="decimal" value="0.94" aria-label="Euro zu Franken Wechselkurs" />
+                  <span>CHF</span>
+                </div>
+                <p>Der Kurs wird für diese Ausgabe gespeichert und kann jederzeit angepasst werden.</p>
+                <div class="rate-automation">
+                  <div class="rate-status-copy">
+                    <strong>Automatischer EZB-Kurs · wöchentlich</strong>
+                    <span id="rateStatus" role="status">Noch nicht aktualisiert</span>
+                  </div>
+                  <button class="rate-refresh-button" id="refreshRate" type="button">Jetzt aktualisieren</button>
+                </div>
+              </div>
+
+              <div class="category-field">
+                <label for="category">Kategorie</label>
+                <div class="select-wrap">
+                  <select id="category" name="category" aria-describedby="learningHint"></select>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+                </div>
+                <p id="learningHint">Wenn du die Kategorie änderst, lernt die App daraus.</p>
+              </div>
+
+              <div class="category-field cadence-field">
+                <label for="cadence">Zahlungsrhythmus</label>
+                <div class="select-wrap">
+                  <select id="cadence" name="cadence" aria-describedby="cadenceHint">
+                    <option value="standard">Normale Ausgabe</option>
+                    <option value="semiannual">Halbjährliche Rechnung</option>
+                    <option value="annual">Jährliche Rechnung</option>
+                  </select>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+                </div>
+                <p id="cadenceHint">Periodische Rechnungen werden separat ausgewertet und verzerren dein laufendes Budget nicht.</p>
+              </div>
+
+              <button class="primary-button" type="submit">
+                <span>Ausgabe speichern</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+              </button>
+            </form>
+          </section>
+
+          <section class="recent-section">
+            <div class="section-heading">
+              <h2>Zuletzt erfasst</h2>
+              <button class="text-button" type="button" data-go="expenses">Alle anzeigen</button>
+            </div>
+            <div id="recentList" class="expense-list compact"></div>
+          </section>
+        </section>
+
+        <section class="view" id="expensesView" aria-labelledby="expensesTab">
+          <div class="view-heading">
+            <p class="eyebrow">Deine Buchungen</p>
+            <h2>Ausgaben</h2>
+          </div>
+
+          <section class="backup-card" aria-labelledby="backupTitle">
+            <div class="backup-copy">
+              <p class="eyebrow">Datensicherung</p>
+              <h3 id="backupTitle">Import & Export</h3>
+              <p>Sichere Ausgaben, Budgets, KI-Lernregeln, Wechselkurs-Einstellungen und Darstellung in einer JSON-Datei.</p>
+            </div>
+            <div class="backup-actions">
+              <button class="secondary-button" id="exportBackup" type="button">Backup exportieren</button>
+              <button class="secondary-button" id="importBackup" type="button">Backup importieren</button>
+              <input id="backupFile" type="file" accept="application/json,.json" hidden />
+            </div>
+          </section>
+
+          <div class="toolbar-card">
+            <div class="select-wrap filter-select">
+              <select id="categoryFilter" aria-label="Nach Kategorie filtern">
+                <option value="all">Alle Kategorien</option>
+              </select>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+            </div>
+            <div class="select-wrap sort-select">
+              <select id="sortOrder" aria-label="Ausgaben sortieren">
+                <option value="newest">Neueste</option>
+                <option value="highest">Höchster Betrag</option>
+                <option value="category">Nach Kategorie</option>
+              </select>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+            </div>
+          </div>
+
+          <div id="expenseList" class="expense-list"></div>
+        </section>
+
+        <section class="view" id="analysisView" aria-labelledby="analysisTab">
+          <div class="view-heading analysis-heading">
+            <div>
+              <p class="eyebrow">Ausgabenübersicht</p>
+              <h2>Analyse</h2>
+            </div>
+          </div>
+
+          <div class="range-tabs" role="group" aria-label="Analysezeitraum">
+            <button type="button" data-range="week">Woche</button>
+            <button class="active" type="button" data-range="month">Monat</button>
+            <button type="button" data-range="year">Jahr</button>
+          </div>
+
+          <div class="period-navigator">
+            <button class="period-arrow" id="previousPeriod" type="button" aria-label="Vorheriger Zeitraum">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <strong id="periodLabel">Aktueller Monat</strong>
+            <button class="period-arrow" id="nextPeriod" type="button" aria-label="Nächster Zeitraum">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          </div>
+
+          <div class="analysis-scope-tabs" role="group" aria-label="Art der Auswertung">
+            <button class="active" type="button" data-analysis-scope="regular">
+              <strong>Laufend</strong><span>ohne Jahresrechnungen</span>
+            </button>
+            <button type="button" data-analysis-scope="cashflow">
+              <strong>Alle Zahlungen</strong><span>echter Geldabfluss</span>
+            </button>
+          </div>
+
+          <article class="analysis-total-card">
+            <span id="analysisTotalLabel">Ausgaben im Monat</span>
+            <strong id="analysisTotal">CHF 0.00</strong>
+            <small id="analysisForeignTotal" class="secondary-currency" hidden></small>
+            <p id="analysisComparison">Noch keine Vergleichsdaten</p>
+            <div class="analysis-metrics">
+              <div><span>Ø pro Tag</span><strong id="analysisDailyAverage">CHF 0</strong></div>
+              <div><span>Buchungen</span><strong id="analysisBookingMetric">0</strong></div>
+              <div><span>Grösste</span><strong id="analysisLargestMetric">CHF 0</strong></div>
+            </div>
+          </article>
+
+          <section class="trend-card">
+            <div class="section-heading">
+              <div>
+                <h2>Ausgabenverlauf</h2>
+                <span id="trendFocus" class="muted">Tippe auf einen Punkt</span>
+              </div>
+              <div class="trend-key"><i></i><span>Aktuell</span><i></i><span>Davor</span></div>
+            </div>
+            <div class="trend-chart-wrap">
+              <svg id="trendChart" class="trend-chart" viewBox="0 0 340 150" role="img" aria-label="Ausgabenverlauf"></svg>
+            </div>
+            <div id="trendLabels" class="trend-labels" aria-hidden="true"></div>
+          </section>
+
+          <section class="breakdown-card">
+            <div class="section-heading">
+              <h2>Nach Kategorie</h2>
+              <span id="analysisCount" class="muted">0 Buchungen</span>
+            </div>
+            <div class="chart-layout">
+              <div class="donut-wrap">
+                <div class="donut" id="donutChart" role="img" aria-label="Verteilung der Ausgaben">
+                  <div><strong id="donutTotal">0</strong><span>Kategorien</span></div>
+                </div>
+              </div>
+              <div id="chartLegend" class="chart-legend"></div>
+            </div>
+          </section>
+
+          <section class="category-detail-card" id="categoryDetailCard">
+            <div class="category-detail-head">
+              <span class="category-icon" id="categoryDetailIcon">•••</span>
+              <div>
+                <span class="muted">Kategorie im Zeitraum</span>
+                <h2 id="categoryDetailTitle">Keine Kategorie</h2>
+              </div>
+              <strong id="categoryDetailAmount">CHF 0.00</strong>
+            </div>
+            <div class="category-detail-stats">
+              <span id="categoryDetailForeign" class="secondary-currency" hidden></span>
+              <span id="categoryDetailShare">0 % Anteil</span>
+              <span id="categoryDetailAverage">Ø CHF 0.00</span>
+              <span id="categoryDetailCount">0 Buchungen</span>
+            </div>
+            <div id="categoryDetailList" class="expense-list compact"></div>
+          </section>
+
+          <section class="budget-card">
+            <div class="section-heading budget-heading">
+              <div>
+                <h2>Budgetkontrolle</h2>
+                <span id="budgetPeriodHint" class="muted">Monatsbudgets</span>
+              </div>
+              <button class="text-button" id="editBudgets" type="button">Bearbeiten</button>
+            </div>
+            <div id="budgetEmpty" class="budget-empty">
+              <p>Lege Budgets pro Kategorie fest, um deine Ausgaben direkt zu vergleichen.</p>
+              <button class="secondary-button" id="setBudgets" type="button">Budgets festlegen</button>
+            </div>
+            <div id="budgetContent" hidden>
+              <div class="budget-summary">
+                <div><span>Budget</span><strong id="budgetTotal">CHF 0.00</strong></div>
+                <div><span id="budgetRemainingLabel">Verfügbar</span><strong id="budgetRemaining">CHF 0.00</strong></div>
+              </div>
+              <div class="progress-track budget-main-progress"><span id="budgetProgress"></span></div>
+              <p id="budgetStatusText" class="budget-status"></p>
+              <div id="budgetRows" class="budget-rows"></div>
+            </div>
+          </section>
+
+          <section class="periodic-card">
+            <div class="section-heading periodic-heading">
+              <div>
+                <h2>Periodische Rechnungen</h2>
+                <span class="muted">Jährlich und halbjährlich</span>
+              </div>
+              <span class="periodic-badge" id="periodicCount">0</span>
+            </div>
+            <div id="periodicEmpty" class="budget-empty">
+              <p>Markiere eine Ausgabe als jährlich oder halbjährlich. Sie wird dann aus dem laufenden Diagramm aussortiert.</p>
+            </div>
+            <div id="periodicContent" hidden>
+              <div class="budget-summary periodic-summary">
+                <div><span>Im Zeitraum bezahlt</span><strong id="periodicPaid">CHF 0.00</strong><small id="periodicPaidForeign" class="secondary-currency" hidden></small></div>
+                <div><span>Monatlich zurücklegen</span><strong id="periodicReserve">CHF 0.00</strong><small id="periodicReserveForeign" class="secondary-currency" hidden></small></div>
+              </div>
+              <p class="budget-status">Die Rücklage entspricht Jahresrechnung ÷ 12 beziehungsweise Halbjahresrechnung ÷ 6.</p>
+              <div id="periodicList" class="expense-list compact"></div>
+            </div>
+          </section>
+
+          <section class="largest-card">
+            <div class="section-heading">
+              <h2>Grösste Ausgaben</h2>
+              <span class="muted">Top 5</span>
+            </div>
+            <div id="largestExpenses" class="expense-list compact"></div>
+          </section>
+
+          <section class="insight-card" id="insightCard">
+            <span class="insight-icon">✦</span>
+            <div>
+              <p>KI-Hinweis</p>
+              <strong id="insightText">Erfasse deine ersten Ausgaben, um eine Auswertung zu erhalten.</strong>
+            </div>
+          </section>
+
+          <details class="privacy-card">
+            <summary>So funktioniert die lernende Sortierung</summary>
+            <p>Die App erkennt Begriffe in deinen Beschreibungen. Korrigierst du eine Kategorie, merkt sie sich dein Beispiel und wird auf diesem Gerät besser. Deine Daten werden nicht hochgeladen.</p>
+          </details>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Hauptnavigation">
+        <button class="nav-item active" id="captureTab" type="button" data-view="capture">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Erfassen</span>
+        </button>
+        <button class="nav-item" id="expensesTab" type="button" data-view="expenses">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg>
+          <span>Ausgaben</span>
+        </button>
+        <button class="nav-item" id="analysisTab" type="button" data-view="analysis">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m5 10V5m6 14v-7m5 7V3"/></svg>
+          <span>Analyse</span>
+        </button>
+      </nav>
+    </div>
+
+    <dialog id="editDialog">
+      <form method="dialog" id="editForm">
+        <div class="dialog-handle"></div>
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Ausgabe anpassen</p>
+            <h2 id="editTitle">Bearbeiten</h2>
+          </div>
+          <button class="icon-button close-button" value="cancel" aria-label="Schliessen" type="submit">×</button>
+        </div>
+        <input type="hidden" id="editId" />
+        <label for="editAmount">Betrag</label>
+        <div class="input-wrap amount-wrap currency-amount-wrap">
+          <select id="editCurrency" aria-label="Währung der Ausgabe">
+            <option value="CHF">CHF</option>
+            <option value="EUR">EUR</option>
+          </select>
+          <input id="editAmount" type="text" inputmode="decimal" placeholder="0.00" />
+        </div>
+        <div class="rate-field compact" id="editExchangeRateField" hidden>
+          <div>
+            <label for="editExchangeRate">Euro-Umrechnung</label>
+            <span>1 EUR entspricht</span>
+          </div>
+          <div class="input-wrap rate-input-wrap">
+            <input id="editExchangeRate" type="text" inputmode="decimal" aria-label="Euro zu Franken Wechselkurs" />
+            <span>CHF</span>
+          </div>
+        </div>
+        <label for="editCategory">Kategorie</label>
+        <div class="select-wrap">
+          <select id="editCategory"></select>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+        </div>
+        <label class="dialog-field-label" for="editCadence">Zahlungsrhythmus</label>
+        <div class="select-wrap">
+          <select id="editCadence">
+            <option value="standard">Normale Ausgabe</option>
+            <option value="semiannual">Halbjährliche Rechnung</option>
+            <option value="annual">Jährliche Rechnung</option>
+          </select>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+        </div>
+        <div class="dialog-actions">
+          <button class="danger-button" id="deleteExpense" type="button">Löschen</button>
+          <button class="primary-button small" id="saveEdit" type="button">Speichern</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="budgetDialog">
+      <form method="dialog" id="budgetForm">
+        <div class="dialog-handle"></div>
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Monatliche Limiten</p>
+            <h2>Budgets festlegen</h2>
+          </div>
+          <button class="icon-button close-button" value="cancel" aria-label="Schliessen" type="submit">×</button>
+        </div>
+        <p class="dialog-copy">Trage nur die Kategorien ein, die du überwachen möchtest. Leere Felder werden nicht berücksichtigt.</p>
+        <div id="budgetInputs" class="budget-inputs"></div>
+        <button class="primary-button" id="saveBudgets" type="button">Budgets speichern</button>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js" defer></script>
+  </body>
+</html>
