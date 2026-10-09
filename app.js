@@ -381,7 +381,31 @@
     return `${start} – ${end}`;
   }
 
-  function previousPeriodPhrases(mode) {
+  // Laufende Periode: Vergleich nur mit dem gleichen Zeitraum der Vorperiode (z. B. 1.–9. des Vormonats)
+  function comparablePreviousBounds(mode, bounds, previousBounds) {
+    const today = dateFromISO(todayISO());
+    if (today < bounds.start || today > bounds.end) return { ...previousBounds, partial: false };
+    let end;
+    if (mode === "week") {
+      end = addDays(previousBounds.start, daysInclusive(bounds.start, today) - 1);
+    } else {
+      const year = previousBounds.start.getFullYear();
+      const month = mode === "month" ? previousBounds.start.getMonth() : today.getMonth();
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      end = new Date(year, month, Math.min(today.getDate(), lastDay), 12);
+    }
+    if (end >= previousBounds.end) return { ...previousBounds, partial: false };
+    return { start: previousBounds.start, end, partial: true };
+  }
+
+  function previousPeriodPhrases(mode, comparison) {
+    if (comparison?.partial) {
+      const format = date => new Intl.DateTimeFormat("de-CH", mode === "week" ? { weekday: "short" } : { day: "numeric", month: "short" }).format(date).replace(/\.$/, "");
+      const range = `${format(comparison.start)} – ${format(comparison.end)}`;
+      if (mode === "week") return { during: "im gleichen Zeitraum der Vorwoche", source: "aus dem gleichen Zeitraum der Vorwoche", compared: `gegenüber der Vorwoche (${range})` };
+      if (mode === "year") return { during: "im gleichen Zeitraum des Vorjahres", source: "aus dem gleichen Zeitraum des Vorjahres", compared: `gegenüber dem Vorjahr (${range})` };
+      return { during: "im gleichen Zeitraum des Vormonats", source: "aus dem gleichen Zeitraum des Vormonats", compared: `gegenüber dem Vormonat (${range})` };
+    }
     if (mode === "week") return { during: "in der Vorwoche", source: "aus der Vorwoche", compared: "gegenüber der Vorwoche" };
     if (mode === "year") return { during: "im Vorjahr", source: "aus dem Vorjahr", compared: "gegenüber dem Vorjahr" };
     return { during: "im Vormonat", source: "aus dem Vormonat", compared: "gegenüber dem Vormonat" };
@@ -792,7 +816,9 @@
     const previousExpenses = analysisScope === "cashflow" ? allPreviousExpenses : regularPreviousExpenses;
     const total = expenses.reduce((sum, expense) => sum + expense.amount, 0);
     const euroTotal = euroOriginalTotal(expenses);
-    const previousTotal = previousExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+    const comparisonBounds = comparablePreviousBounds(analysisMode, bounds, previousBounds);
+    const comparisonExpenses = previousExpenses.filter(expense => isInBounds(expense.date, comparisonBounds));
+    const previousTotal = comparisonExpenses.reduce((sum, expense) => sum + expense.amount, 0);
     const categoryTotals = Object.entries(totalsByCategory(expenses)).sort((a, b) => b[1] - a[1]);
     const today = dateFromISO(todayISO());
     const currentBounds = periodBounds(analysisMode, todayISO());
@@ -824,7 +850,7 @@
 
     els.analysisComparison.className = "";
     let change = null;
-    const previousPhrases = previousPeriodPhrases(analysisMode);
+    const previousPhrases = previousPeriodPhrases(analysisMode, comparisonBounds);
     if (previousTotal > 0) {
       change = ((total - previousTotal) / previousTotal) * 100;
       if (Math.abs(change) < 0.5) {
@@ -868,7 +894,7 @@
     renderLargestExpenses(expenses);
 
     const forecast = renderForecast(bounds, expenses, total);
-    const movers = renderChanges(expenses, previousExpenses, previousTotal > 0);
+    const movers = renderChanges(expenses, comparisonExpenses, previousTotal > 0, previousPhrases);
 
     const insights = [];
     if (!expenses.length) {
@@ -983,10 +1009,10 @@
     return { projected, budget, budgetPerDay };
   }
 
-  function renderChanges(expenses, previousExpenses, hasPrevious) {
-    els.changesHint.textContent = previousPeriodPhrases(analysisMode).compared;
+  function renderChanges(expenses, previousExpenses, hasPrevious, phrases) {
+    els.changesHint.textContent = phrases.compared;
     if (!hasPrevious || !expenses.length) {
-      els.changesList.innerHTML = emptyState("Noch kein Vergleich", `Sobald Ausgaben ${previousPeriodPhrases(analysisMode).during} vorliegen, siehst du hier, was sich verändert hat.`, "⇅");
+      els.changesList.innerHTML = emptyState("Noch kein Vergleich", `Sobald Ausgaben ${phrases.during} vorliegen, siehst du hier, was sich verändert hat.`, "⇅");
       return [];
     }
     const now = totalsByCategory(expenses);
